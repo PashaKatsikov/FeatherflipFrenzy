@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/chicken_skin.dart';
@@ -47,6 +49,10 @@ class AppState extends ChangeNotifier {
   bool vibrationOn = true;
   bool highGraphics = true;
   bool hasSeenTutorial = false;
+
+  /// Absolute path to the player's profile photo in the documents directory.
+  String? profilePhotoPath;
+  int profilePhotoNonce = 0;
 
   bool _loaded = false;
   bool get isLoaded => _loaded;
@@ -103,10 +109,13 @@ class AppState extends ChangeNotifier {
         vibrationOn = json['vibrationOn'] as bool? ?? true;
         highGraphics = json['highGraphics'] as bool? ?? true;
         hasSeenTutorial = json['hasSeenTutorial'] as bool? ?? false;
+        profilePhotoPath = json['profilePhotoPath'] as String?;
+        profilePhotoNonce = json['profilePhotoNonce'] as int? ?? 0;
       }
     } catch (_) {
       // Corrupt save data should never crash the game; fall back to defaults.
     }
+    await _reconcileProfilePhoto();
     _maybeResetDaily();
     _loaded = true;
     notifyListeners();
@@ -145,6 +154,8 @@ class AppState extends ChangeNotifier {
       'vibrationOn': vibrationOn,
       'highGraphics': highGraphics,
       'hasSeenTutorial': hasSeenTutorial,
+      'profilePhotoPath': profilePhotoPath,
+      'profilePhotoNonce': profilePhotoNonce,
     };
     await prefs.setString(_saveKey, jsonEncode(json));
   }
@@ -383,6 +394,58 @@ class AppState extends ChangeNotifier {
     hasSeenTutorial = true;
     notifyListeners();
     _save();
+  }
+
+  // ---------------------------------------------------------------------
+  // Profile photo
+  // ---------------------------------------------------------------------
+
+  static const _profileFileName = 'ff_profile.jpg';
+
+  Future<File> _profileFile() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/$_profileFileName');
+  }
+
+  Future<void> _reconcileProfilePhoto() async {
+    final path = profilePhotoPath;
+    if (path == null || path.isEmpty) return;
+    if (File(path).existsSync()) return;
+    try {
+      final fallback = await _profileFile();
+      if (fallback.existsSync()) {
+        profilePhotoPath = fallback.path;
+        return;
+      }
+    } catch (_) {}
+    profilePhotoPath = null;
+  }
+
+  Future<bool> setProfilePhotoFromPath(String sourcePath) async {
+    try {
+      final dest = await _profileFile();
+      await File(sourcePath).copy(dest.path);
+      profilePhotoPath = dest.path;
+      profilePhotoNonce += 1;
+      notifyListeners();
+      await _save();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> clearProfilePhoto() async {
+    try {
+      final file = await _profileFile();
+      if (file.existsSync()) {
+        await file.delete();
+      }
+    } catch (_) {}
+    profilePhotoPath = null;
+    profilePhotoNonce += 1;
+    notifyListeners();
+    await _save();
   }
 
   @override

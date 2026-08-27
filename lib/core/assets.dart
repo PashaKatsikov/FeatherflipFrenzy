@@ -65,6 +65,7 @@ class Sprites {
   static const haystack = '$_base/haystack.png';
   static const coinIcon = '$_base/coin_icon.png';
   static const coinGoldIcon = '$_base/coin_gold_icon.png';
+  static const grainPouch = '$_base/grain_pouch.webp';
 
   static const List<String> preloadList = [
     pastureVista, riverVista, lakeVista, groundPasture,
@@ -78,7 +79,7 @@ class Sprites {
     pathStraight,
     bridgeSmall, bridgeLong, bridgeArched,
     islandSmall, islandMedium, islandLarge,
-    coop, gate, haystack, coinIcon, coinGoldIcon,
+    coop, gate, haystack, coinIcon, coinGoldIcon, grainPouch,
   ];
 }
 

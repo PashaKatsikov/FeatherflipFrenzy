@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../core/app_version.dart';
 import '../core/assets.dart';
 import '../core/audio_service.dart';
 import '../core/haptics.dart';
@@ -10,8 +14,84 @@ import '../widgets/ff_back_button.dart';
 import '../widgets/menu_background.dart';
 import 'webview_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _pickingPhoto = false;
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    if (_pickingPhoto) return;
+    setState(() => _pickingPhoto = true);
+    try {
+      final picker = ImagePicker();
+      final file = await picker.pickImage(
+        source: source,
+        maxWidth: 720,
+        maxHeight: 720,
+        imageQuality: 85,
+      );
+      if (!mounted || file == null) return;
+      final ok = await context.read<AppState>().setProfilePhotoFromPath(file.path);
+      if (!mounted) return;
+      if (ok) {
+        AudioService.instance.playSfx(Sfx.rewardCollect);
+        Haptics.instance.light();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save that photo. Please try another one.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            source == ImageSource.camera
+                ? 'Camera is unavailable. Try choosing a photo from your library.'
+                : 'Could not open the photo library.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _pickingPhoto = false);
+    }
+  }
+
+  Future<void> _confirmRemovePhoto() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: FFColors.panelBrown,
+        title: Text('Remove photo?', style: FFText.heading(size: 20)),
+        content: Text(
+          'Your farmyard profile will go back to the default hen portrait.',
+          style: FFText.body(size: 15, color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Keep', style: FFText.body(size: 15, color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Remove', style: FFText.body(size: 15, color: FFColors.warmYellow)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await context.read<AppState>().clearProfilePhoto();
+    AudioService.instance.playSfx(Sfx.menuClose);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +125,18 @@ class SettingsScreen extends StatelessWidget {
                     child: SingleChildScrollView(
                       child: Column(
                         children: [
+                          _ProfilePhotoRow(
+                            photoPath: appState.profilePhotoPath,
+                            nonce: appState.profilePhotoNonce,
+                            busy: _pickingPhoto,
+                            onCamera: () => _pickPhoto(ImageSource.camera),
+                            onGallery: () => _pickPhoto(ImageSource.gallery),
+                            onRemove: appState.profilePhotoPath == null ? null : _confirmRemovePhoto,
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            child: Divider(color: Colors.white24, height: 1),
+                          ),
                           _ToggleRow(
                             icon: Icons.volume_up_rounded,
                             label: 'Sound Effects',
@@ -94,7 +186,7 @@ class SettingsScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 14),
-                          Text('Featherflip Frenzy v1.0.0', style: FFText.body(size: 12, color: Colors.white38)),
+                          Text(AppVersion.display, style: FFText.body(size: 12, color: Colors.white38)),
                         ],
                       ),
                     ),
@@ -102,6 +194,123 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfilePhotoRow extends StatelessWidget {
+  final String? photoPath;
+  final int nonce;
+  final bool busy;
+  final VoidCallback onCamera;
+  final VoidCallback onGallery;
+  final VoidCallback? onRemove;
+
+  const _ProfilePhotoRow({
+    required this.photoPath,
+    required this.nonce,
+    required this.busy,
+    required this.onCamera,
+    required this.onGallery,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _ProfileAvatar(path: photoPath, nonce: nonce, busy: busy),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Profile Photo', style: FFText.body(size: 16, color: Colors.white)),
+              const SizedBox(height: 2),
+              Text(
+                'Show your face in the farmyard, or keep the hen portrait.',
+                style: FFText.body(size: 12, color: Colors.white60),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _PhotoChip(icon: Icons.photo_camera_rounded, label: 'Camera', onTap: busy ? null : onCamera),
+                  _PhotoChip(icon: Icons.photo_library_rounded, label: 'Gallery', onTap: busy ? null : onGallery),
+                  if (onRemove != null) _PhotoChip(icon: Icons.close_rounded, label: 'Remove', onTap: busy ? null : onRemove),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  final String? path;
+  final int nonce;
+  final bool busy;
+  const _ProfileAvatar({required this.path, required this.nonce, required this.busy});
+
+  @override
+  Widget build(BuildContext context) {
+    final file = path == null ? null : File(path!);
+    final hasFile = file != null && file.existsSync();
+    return Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFD9A971), width: 3),
+        color: FFColors.panelBrownDark,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: busy
+          ? const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: FFColors.gold)))
+          : hasFile
+              ? Image.file(file, key: ValueKey('$path-$nonce'), fit: BoxFit.cover)
+              : Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Image.asset(Sprites.chickenMain, fit: BoxFit.contain),
+                ),
+    );
+  }
+}
+
+class _PhotoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  const _PhotoChip({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap == null
+          ? null
+          : () {
+              AudioService.instance.playSfx(Sfx.buttonTap);
+              onTap!();
+            },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: FFColors.panelBrownDark.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFD9A971), width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: FFColors.warmYellow, size: 16),
+            const SizedBox(width: 6),
+            Text(label, style: FFText.body(size: 12, color: Colors.white)),
           ],
         ),
       ),

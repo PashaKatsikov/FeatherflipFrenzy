@@ -13,6 +13,7 @@ import '../state/app_state.dart';
 import 'components/chicken_component.dart';
 import 'components/effects.dart';
 import 'components/egg_component.dart';
+import 'components/grain_pouch_component.dart';
 import 'components/nest_glow_component.dart';
 import 'components/zone_scene_component.dart';
 import 'game_utils.dart';
@@ -37,6 +38,7 @@ class FeatherflipGame extends FlameGame<World> {
   late ChickenComponent chicken;
   late ZoneSceneComponent scene;
   final List<EggComponent> eggs = [];
+  final List<GrainPouchComponent> pouches = [];
   NestGlowComponent? nestGlow;
 
   final math.Random _rng = math.Random();
@@ -195,6 +197,7 @@ class FeatherflipGame extends FlameGame<World> {
     _stepSpawner(dt);
     _stepChickenCollisions();
     _stepEggPhysics(dt);
+    _stepGrainPouches();
     _cleanupEggs();
     if (_rareNestActiveTimer > 0) {
       _rareNestActiveTimer = math.max(0, _rareNestActiveTimer - dt);
@@ -448,6 +451,7 @@ class FeatherflipGame extends FlameGame<World> {
     Haptics.instance.medium();
 
     _handleStreakThresholds();
+    _maybeSpawnGrainPouch(nest);
   }
 
   void _loseEgg(EggComponent egg) {
@@ -549,6 +553,79 @@ class FeatherflipGame extends FlameGame<World> {
       }
     }
     return best;
+  }
+
+  // ---------------------------------------------------------------------
+  // Grain pouches
+  // ---------------------------------------------------------------------
+
+  static const double _pouchSpawnChance = 0.25;
+
+  void _maybeSpawnGrainPouch(NestSpec nest) {
+    if (pouches.where((p) => !p.collected && !p.expired).length >= 3) return;
+    if (_rng.nextDouble() >= _pouchSpawnChance) return;
+    final pos = _pouchSpawnPosition(nest);
+    if (pos == null) return;
+    final pouch = GrainPouchComponent(startPosition: pos);
+    pouch.priority = 5;
+    pouches.add(pouch);
+    world.add(pouch);
+  }
+
+  Vector2? _pouchSpawnPosition(NestSpec nest) {
+    final origin = offsetToVector(nest.position);
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final angle = _rng.nextDouble() * math.pi * 2;
+      final dist = 52 + _rng.nextDouble() * 34;
+      final candidate = Vector2(
+        origin.x + math.cos(angle) * dist,
+        origin.y + math.sin(angle) * dist,
+      );
+      candidate.x = clampD(candidate.x, worldBounds.left + 28, worldBounds.right - 28);
+      candidate.y = clampD(candidate.y, worldBounds.top + 28, worldBounds.bottom - 28);
+      if (_isChickenBlocked(candidate)) continue;
+      return candidate;
+    }
+    return null;
+  }
+
+  void _stepGrainPouches() {
+    for (final pouch in pouches) {
+      if (pouch.collected || pouch.expired) continue;
+      final dist = (pouch.position - chicken.position).length;
+      if (dist < GrainPouchComponent.radius + ChickenComponent.radius * 0.72) {
+        _collectGrainPouch(pouch);
+      }
+    }
+    pouches.removeWhere((pouch) {
+      if (!pouch.collected && !pouch.expired) return false;
+      pouch.removeFromParent();
+      return true;
+    });
+  }
+
+  void _collectGrainPouch(GrainPouchComponent pouch) {
+    pouch.collected = true;
+    final reward = 8 + _rng.nextInt(8);
+    coinsThisRound.value += reward;
+    appState.addCoins(reward);
+    if (_extraEffects) {
+      world.add(BurstEffectComponent(
+        position: pouch.position.clone(),
+        color: const Color(0xFFFFD54A),
+        maxRadius: 40,
+        filled: true,
+        duration: 0.35,
+      ));
+    }
+    world.add(FloatingTextComponent(
+      position: pouch.position.clone() - Vector2(0, 28),
+      text: '+$reward',
+      color: const Color(0xFFFFD54A),
+    ));
+    AudioService.instance.playSfx(Sfx.coinCollect);
+    Haptics.instance.light();
+    _showBanner('Grain Pouch! +$reward');
   }
 
   NestSpec? _nearestNest(Vector2 from) {
