@@ -87,6 +87,12 @@ class _RoundResultsScreenState extends State<RoundResultsScreen> {
                         label: 'Best Streak',
                         value: '${result.bestStreak}',
                       ),
+                      _StatColumn(
+                        icon: null,
+                        iconData: Icons.flash_on_rounded,
+                        label: 'Clean Flips',
+                        value: '${result.cleanFlips}',
+                      ),
                     ],
                   ),
                   if (result.challengeBonus > 0) ...[

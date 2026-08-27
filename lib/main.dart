@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'core/analytics_service.dart';
 import 'core/audio_service.dart';
+import 'core/notification_service.dart';
 import 'core/orientation.dart';
 import 'core/theme.dart';
 import 'screens/loading_screen.dart';
@@ -14,6 +15,7 @@ Future<void> main() async {
   Flame.images.prefix = '';
   AudioService.instance.init();
   await AnalyticsService.instance.prepare();
+  await NotificationService.instance.init();
   runApp(const FeatherflipApp());
 }
 

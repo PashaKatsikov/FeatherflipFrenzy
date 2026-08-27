@@ -55,6 +55,8 @@ class FeatherflipGame extends FlameGame<World> {
 
   int eggsDeliveredThisRound = 0;
   int bestStreakThisRound = 0;
+  int cleanFlipsThisRound = 0;
+  bool _cleanFlipBonusGranted = false;
   double _roundTimeRemaining = 0;
   double _elapsed = 0;
   double _eggSpawnCooldown = 1.2;
@@ -312,6 +314,7 @@ class FeatherflipGame extends FlameGame<World> {
           egg.velocity = normal * impulseSpeed;
           egg.state = EggLifeState.moving;
           egg.waterStuckTimer = 0;
+          egg.lastHitWasDash = chicken.isDashing;
           if (_extraEffects) {
             world.add(BurstEffectComponent(
               position: egg.position.clone(),
@@ -459,9 +462,22 @@ class FeatherflipGame extends FlameGame<World> {
     appState.addCoins(reward);
     appState.recordEggDelivered(egg.type);
     appState.recordStreak(bestStreakThisRound);
+    var cleanFlipBonus = 0;
+    if (egg.lastHitWasDash) {
+      cleanFlipsThisRound += 1;
+      cleanFlipBonus = 5;
+      appState.recordCleanFlips(1);
+      if (!_cleanFlipBonusGranted && cleanFlipsThisRound >= 5) {
+        _cleanFlipBonusGranted = true;
+        cleanFlipBonus += 40;
+      }
+      coinsThisRound.value += cleanFlipBonus;
+      appState.addCoins(cleanFlipBonus);
+    }
     AnalyticsService.instance.logEvent('egg_delivered', {
       'egg_type': egg.type.name,
       'zone': zone.id,
+      'clean_flip': egg.lastHitWasDash,
     });
 
     if (_extraEffects) {
@@ -478,11 +494,30 @@ class FeatherflipGame extends FlameGame<World> {
       text: '+$reward',
       color: const Color(0xFFFFD54A),
     ));
+    if (egg.lastHitWasDash) {
+      if (_extraEffects) {
+        world.add(BurstEffectComponent(
+          position: offsetToVector(nest.position),
+          color: const Color(0xFFFFE08A),
+          maxRadius: 72,
+          duration: 0.4,
+        ));
+      }
+      world.add(FloatingTextComponent(
+        position: offsetToVector(nest.position) - Vector2(0, 68),
+        text: cleanFlipBonus > 5 ? 'Clean Flip! +$cleanFlipBonus' : 'Clean Flip! +5',
+        color: const Color(0xFFFFF3C4),
+        fontSize: 18,
+      ));
+    }
     AudioService.instance.playSfx(Sfx.eggDeliverySuccess);
     AudioService.instance.playSfx(Sfx.coinCollect, volume: 0.7);
     Haptics.instance.medium();
 
     _handleStreakThresholds();
+    if (egg.lastHitWasDash && cleanFlipsThisRound == 5 && _cleanFlipBonusGranted) {
+      _showBanner('5 Clean Flips! +40');
+    }
     _maybeSpawnGrainPouch(nest);
   }
 
@@ -719,6 +754,7 @@ class FeatherflipGame extends FlameGame<World> {
       unlockedNewZone: unlockedNew,
       challengeBonus: challengeBonus,
       challengeTitle: challenge?.title,
+      cleanFlips: cleanFlipsThisRound,
     ));
   }
 

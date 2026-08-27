@@ -9,6 +9,7 @@ class RoundResult {
   final bool unlockedNewZone;
   final int challengeBonus;
   final String? challengeTitle;
+  final int cleanFlips;
 
   const RoundResult({
     required this.zone,
@@ -19,5 +20,6 @@ class RoundResult {
     required this.unlockedNewZone,
     this.challengeBonus = 0,
     this.challengeTitle,
+    this.cleanFlips = 0,
   });
 }

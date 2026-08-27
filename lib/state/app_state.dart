@@ -37,6 +37,7 @@ class AppState extends ChangeNotifier {
   int totalGoldenEggsDelivered = 0;
   int totalRoundsCompleted = 0;
   int bestStreakEver = 0;
+  int totalCleanFlips = 0;
 
   final Map<String, int> dailyProgress = {};
   final Set<String> dailyClaimed = {};
@@ -56,6 +57,10 @@ class AppState extends ChangeNotifier {
   bool vibrationOn = true;
   bool highGraphics = true;
   bool hasSeenTutorial = false;
+
+  bool notificationsOn = false;
+  int notificationHour = 18;
+  int notificationMinute = 0;
 
   /// Absolute path to the player's profile photo in the documents directory.
   String? profilePhotoPath;
@@ -101,6 +106,7 @@ class AppState extends ChangeNotifier {
         totalGoldenEggsDelivered = json['totalGoldenEggsDelivered'] as int? ?? 0;
         totalRoundsCompleted = json['totalRoundsCompleted'] as int? ?? 0;
         bestStreakEver = json['bestStreakEver'] as int? ?? 0;
+        totalCleanFlips = json['totalCleanFlips'] as int? ?? 0;
         (json['dailyProgress'] as Map<String, dynamic>?)?.forEach((k, v) {
           dailyProgress[k] = v as int;
         });
@@ -120,6 +126,9 @@ class AppState extends ChangeNotifier {
         vibrationOn = json['vibrationOn'] as bool? ?? true;
         highGraphics = json['highGraphics'] as bool? ?? true;
         hasSeenTutorial = json['hasSeenTutorial'] as bool? ?? false;
+        notificationsOn = json['notificationsOn'] as bool? ?? false;
+        notificationHour = json['notificationHour'] as int? ?? 18;
+        notificationMinute = json['notificationMinute'] as int? ?? 0;
         profilePhotoPath = json['profilePhotoPath'] as String?;
         profilePhotoNonce = json['profilePhotoNonce'] as int? ?? 0;
       }
@@ -157,6 +166,7 @@ class AppState extends ChangeNotifier {
       'totalGoldenEggsDelivered': totalGoldenEggsDelivered,
       'totalRoundsCompleted': totalRoundsCompleted,
       'bestStreakEver': bestStreakEver,
+      'totalCleanFlips': totalCleanFlips,
       'dailyProgress': dailyProgress,
       'dailyClaimed': dailyClaimed.toList(),
       'lastDailyResetDate': lastDailyResetDate,
@@ -170,6 +180,9 @@ class AppState extends ChangeNotifier {
       'vibrationOn': vibrationOn,
       'highGraphics': highGraphics,
       'hasSeenTutorial': hasSeenTutorial,
+      'notificationsOn': notificationsOn,
+      'notificationHour': notificationHour,
+      'notificationMinute': notificationMinute,
       'profilePhotoPath': profilePhotoPath,
       'profilePhotoNonce': profilePhotoNonce,
     };
@@ -382,6 +395,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  void recordCleanFlips(int amount) {
+    if (amount <= 0) return;
+    totalCleanFlips += amount;
+    _trackDaily(QuestMetric.cleanFlips, amount);
+    notifyListeners();
+  }
+
   void persistAfterRound() => _save();
 
   void _trackDaily(QuestMetric metric, int amount) {
@@ -413,6 +433,7 @@ class AppState extends ChangeNotifier {
         QuestMetric.goldenEggsDelivered => totalGoldenEggsDelivered,
         QuestMetric.roundsCompleted => totalRoundsCompleted,
         QuestMetric.bestStreakEver => bestStreakEver,
+        QuestMetric.cleanFlips => totalCleanFlips,
       };
 
   bool isAchievementClaimable(QuestDef quest) =>
@@ -452,6 +473,19 @@ class AppState extends ChangeNotifier {
   void markTutorialSeen() {
     if (hasSeenTutorial) return;
     hasSeenTutorial = true;
+    notifyListeners();
+    _save();
+  }
+
+  Future<void> setNotificationsOn(bool value) async {
+    notificationsOn = value;
+    notifyListeners();
+    _save();
+  }
+
+  Future<void> setNotificationTime(int hour, int minute) async {
+    notificationHour = hour.clamp(0, 23);
+    notificationMinute = minute.clamp(0, 59);
     notifyListeners();
     _save();
   }

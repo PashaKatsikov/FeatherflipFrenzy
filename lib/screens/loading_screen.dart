@@ -6,6 +6,7 @@ import '../core/analytics_service.dart';
 import '../core/assets.dart';
 import '../core/audio_service.dart';
 import '../core/haptics.dart';
+import '../core/notification_service.dart';
 import '../core/orientation.dart';
 import '../core/theme.dart';
 import '../state/app_state.dart';
@@ -73,6 +74,12 @@ class _LoadingScreenState extends State<LoadingScreen> {
     AudioService.instance.setSfxEnabled(appState.sfxOn);
     Haptics.instance.setEnabled(appState.vibrationOn);
     await AnalyticsService.instance.start();
+    if (appState.notificationsOn) {
+      await NotificationService.instance.scheduleDaily(
+        hour: appState.notificationHour,
+        minute: appState.notificationMinute,
+      );
+    }
 
     final elapsed = stopwatch.elapsedMilliseconds;
     const minDisplayMs = 1100;

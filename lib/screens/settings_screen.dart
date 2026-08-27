@@ -8,6 +8,7 @@ import '../core/app_version.dart';
 import '../core/assets.dart';
 import '../core/audio_service.dart';
 import '../core/haptics.dart';
+import '../core/notification_service.dart';
 import '../core/theme.dart';
 import '../state/app_state.dart';
 import '../widgets/ff_back_button.dart';
@@ -93,6 +94,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
     AudioService.instance.playSfx(Sfx.menuClose);
   }
 
+  Future<void> _setNotificationsOn(bool enabled, AppState appState) async {
+    if (enabled) {
+      final granted = await NotificationService.instance.requestPermission();
+      if (!granted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Notifications are off in iOS Settings. Enable them to hear the coop call.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      await appState.setNotificationsOn(true);
+      await NotificationService.instance.scheduleDaily(
+        hour: appState.notificationHour,
+        minute: appState.notificationMinute,
+      );
+      AudioService.instance.playSfx(Sfx.buttonTap);
+      return;
+    }
+    await appState.setNotificationsOn(false);
+    await NotificationService.instance.cancelDaily();
+    AudioService.instance.playSfx(Sfx.menuClose);
+  }
+
+  Future<void> _pickNotificationTime(AppState appState) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: appState.notificationHour, minute: appState.notificationMinute),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            timePickerTheme: TimePickerThemeData(
+              backgroundColor: FFColors.panelBrown,
+              hourMinuteTextColor: Colors.white,
+              dialHandColor: FFColors.gold,
+              entryModeIconColor: FFColors.warmYellow,
+            ),
+            colorScheme: const ColorScheme.dark(
+              primary: FFColors.gold,
+              onPrimary: FFColors.textDark,
+              surface: FFColors.panelBrown,
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    await appState.setNotificationTime(picked.hour, picked.minute);
+    if (appState.notificationsOn) {
+      await NotificationService.instance.scheduleDaily(hour: picked.hour, minute: picked.minute);
+    }
+    AudioService.instance.playSfx(Sfx.elementSelect);
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -163,6 +222,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             value: appState.highGraphics,
                             onChanged: appState.setHighGraphics,
                           ),
+                          _ToggleRow(
+                            icon: Icons.notifications_active_rounded,
+                            label: 'Daily Coop Reminder',
+                            value: appState.notificationsOn,
+                            onChanged: (v) => _setNotificationsOn(v, appState),
+                          ),
+                          if (appState.notificationsOn)
+                            _NotificationTimeRow(
+                              hour: appState.notificationHour,
+                              minute: appState.notificationMinute,
+                              onTap: () => _pickNotificationTime(appState),
+                            ),
                           const Padding(
                             padding: EdgeInsets.symmetric(vertical: 14),
                             child: Divider(color: Colors.white24, height: 1),
@@ -340,6 +411,36 @@ class _ToggleRow extends StatelessWidget {
             activeThumbColor: FFColors.gold,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NotificationTimeRow extends StatelessWidget {
+  final int hour;
+  final int minute;
+  final VoidCallback onTap;
+  const _NotificationTimeRow({required this.hour, required this.minute, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = TimeOfDay(hour: hour, minute: minute).format(context);
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        AudioService.instance.playSfx(Sfx.buttonTap);
+        onTap();
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(38, 4, 0, 10),
+        child: Row(
+          children: [
+            const Icon(Icons.schedule_rounded, color: FFColors.warmYellow, size: 22),
+            const SizedBox(width: 14),
+            Expanded(child: Text('Remind me at $label', style: FFText.body(size: 15, color: Colors.white))),
+            const Icon(Icons.edit_rounded, color: Colors.white54, size: 18),
+          ],
+        ),
       ),
     );
   }

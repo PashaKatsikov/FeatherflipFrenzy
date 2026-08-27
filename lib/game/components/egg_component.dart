@@ -30,6 +30,7 @@ class EggComponent extends PositionComponent {
   double removalAnim = 0;
   bool markedForRemoval = false;
   bool removalIsDelivery = false;
+  bool lastHitWasDash = false;
 
   double _bobPhase = math.Random().nextDouble() * math.pi * 2;
 
