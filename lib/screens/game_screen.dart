@@ -7,6 +7,7 @@ import '../core/audio_service.dart';
 import '../core/theme.dart';
 import '../game/featherflip_game.dart';
 import '../models/round_result.dart';
+import '../models/yard_challenge.dart';
 import '../models/zone.dart';
 import '../state/app_state.dart';
 import '../widgets/coin_badge.dart';
@@ -17,7 +18,8 @@ import 'zone_unlock_screen.dart';
 
 class GameScreen extends StatefulWidget {
   final ZoneDef zone;
-  const GameScreen({super.key, required this.zone});
+  final YardChallenge? challenge;
+  const GameScreen({super.key, required this.zone, this.challenge});
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -38,6 +40,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       zone: widget.zone,
       appState: appState,
       onRoundEnd: _onRoundEnd,
+      challenge: widget.challenge,
     );
     _showTutorial = widget.zone.index == 0 && !appState.hasSeenTutorial;
     if (_showTutorial) {
@@ -131,7 +134,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            if (_paused) _PauseOverlay(zone: widget.zone, onResume: () => _setPaused(false)),
+            if (_paused) _PauseOverlay(zone: widget.zone, challenge: widget.challenge, onResume: () => _setPaused(false)),
             if (_showTutorial) _TutorialOverlay(onDismiss: _dismissTutorial),
           ],
         ),
@@ -319,8 +322,9 @@ class _RescueButton extends StatelessWidget {
 
 class _PauseOverlay extends StatelessWidget {
   final ZoneDef zone;
+  final YardChallenge? challenge;
   final VoidCallback onResume;
-  const _PauseOverlay({required this.zone, required this.onResume});
+  const _PauseOverlay({required this.zone, required this.challenge, required this.onResume});
 
   @override
   Widget build(BuildContext context) {
@@ -352,7 +356,7 @@ class _PauseOverlay extends StatelessWidget {
                       width: 240,
                       height: 52,
                       onPressed: () {
-                        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => GameScreen(zone: zone)));
+                        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => GameScreen(zone: zone, challenge: challenge)));
                       },
                     ),
                     const SizedBox(height: 10),

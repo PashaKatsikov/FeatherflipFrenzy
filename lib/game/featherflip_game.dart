@@ -3,11 +3,13 @@ import 'package:flame/components.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart' hide Image;
 
+import '../core/analytics_service.dart';
 import '../core/assets.dart';
 import '../core/audio_service.dart';
 import '../core/haptics.dart';
 import '../models/egg_type.dart';
 import '../models/round_result.dart';
+import '../models/yard_challenge.dart';
 import '../models/zone.dart';
 import '../state/app_state.dart';
 import 'components/chicken_component.dart';
@@ -26,10 +28,12 @@ class FeatherflipGame extends FlameGame<World> {
     required this.zone,
     required this.appState,
     required this.onRoundEnd,
+    this.challenge,
   }) : super(world: World());
 
   final ZoneDef zone;
   final AppState appState;
+  final YardChallenge? challenge;
   final void Function(RoundResult result) onRoundEnd;
 
   static const double worldViewHeight = 720;
@@ -70,7 +74,7 @@ class FeatherflipGame extends FlameGame<World> {
   Future<void> onLoad() async {
     final layout = zone.layout;
     worldBounds = Rect.fromLTWH(0, 0, layout.worldWidth, layout.worldHeight);
-    _roundTimeRemaining = zone.roundSeconds.toDouble();
+    _roundTimeRemaining = _roundSeconds.toDouble();
     timeRemaining.value = _roundTimeRemaining;
     rescueCharges.value = appState.rescueChargesForRound();
 
@@ -102,6 +106,9 @@ class FeatherflipGame extends FlameGame<World> {
 
     for (final sp in layout.spawnPoints.take(zone.maxEggsStart)) {
       _spawnEgg(at: sp.position);
+    }
+    if (challenge != null) {
+      _showBanner("${challenge!.title}!");
     }
   }
 
@@ -234,17 +241,38 @@ class FeatherflipGame extends FlameGame<World> {
     }
   }
 
+  int get _roundSeconds {
+    if (challenge?.kind == YardChallengeKind.shortShift) {
+      return math.max(40, zone.roundSeconds + YardChallengeRules.shortShiftSecondsDelta);
+    }
+    return zone.roundSeconds;
+  }
+
+  int _starGoal(int base) {
+    if (challenge?.kind == YardChallengeKind.shortShift) {
+      return math.max(1, base - YardChallengeRules.shortShiftGoalRelief);
+    }
+    return base;
+  }
+
+  double get _coinMultiplier =>
+      challenge?.kind == YardChallengeKind.heavyHarvest ? YardChallengeRules.heavyHarvestCoinMultiplier : 1.0;
+
   EggType _pickEggType() {
     if (_forceGoldenNext) {
       _forceGoldenNext = false;
       return EggType.gold;
     }
-    // A small independent chance keeps golden eggs a genuine rare prize even
-    // for players who never chain a long streak.
-    if (_elapsed > 25 && _rng.nextDouble() < 0.06) {
+    final goldenChance = challenge?.kind == YardChallengeKind.goldenHour ? 0.18 : 0.06;
+    if (_elapsed > (challenge?.kind == YardChallengeKind.goldenHour ? 8 : 25) && _rng.nextDouble() < goldenChance) {
       return EggType.gold;
     }
     final r = _rng.nextDouble();
+    if (challenge?.kind == YardChallengeKind.heavyHarvest) {
+      if (r < 0.38) return EggType.heavy;
+      if (r < 0.50) return EggType.bouncy;
+      return EggType.normal;
+    }
     if (_elapsed > 18 && zone.index >= 1) {
       if (r < 0.14) return EggType.bouncy;
       if (r < 0.28) return EggType.heavy;
@@ -423,7 +451,7 @@ class FeatherflipGame extends FlameGame<World> {
     egg.removalIsDelivery = true;
     egg.state = EggLifeState.delivered;
 
-    final reward = (egg.type.baseReward * nest.rewardMultiplier).round();
+    final reward = (egg.type.baseReward * nest.rewardMultiplier * _coinMultiplier).round();
     coinsThisRound.value += reward;
     eggsDeliveredThisRound += 1;
     streak.value += 1;
@@ -431,6 +459,10 @@ class FeatherflipGame extends FlameGame<World> {
     appState.addCoins(reward);
     appState.recordEggDelivered(egg.type);
     appState.recordStreak(bestStreakThisRound);
+    AnalyticsService.instance.logEvent('egg_delivered', {
+      'egg_type': egg.type.name,
+      'zone': zone.id,
+    });
 
     if (_extraEffects) {
       world.add(BurstEffectComponent(
@@ -626,6 +658,7 @@ class FeatherflipGame extends FlameGame<World> {
     AudioService.instance.playSfx(Sfx.coinCollect);
     Haptics.instance.light();
     _showBanner('Grain Pouch! +$reward');
+    AnalyticsService.instance.logEvent('grain_pouch_collected', {'coins': reward});
   }
 
   NestSpec? _nearestNest(Vector2 from) {
@@ -651,16 +684,32 @@ class FeatherflipGame extends FlameGame<World> {
     _ended = true;
     chicken.setMoveDirection(Vector2.zero());
     int stars = 0;
-    if (eggsDeliveredThisRound >= zone.goal3Star) {
+    if (eggsDeliveredThisRound >= _starGoal(zone.goal3Star)) {
       stars = 3;
-    } else if (eggsDeliveredThisRound >= zone.goal2Star) {
+    } else if (eggsDeliveredThisRound >= _starGoal(zone.goal2Star)) {
       stars = 2;
-    } else if (eggsDeliveredThisRound >= zone.goal1Star) {
+    } else if (eggsDeliveredThisRound >= _starGoal(zone.goal1Star)) {
       stars = 1;
     }
     final unlockedNew = appState.reportZoneResult(zone, stars);
+    var challengeBonus = 0;
+    if (challenge != null && appState.claimDailyChallengeReward()) {
+      challengeBonus = YardChallengeRules.completionBonus;
+      AnalyticsService.instance.logEvent('daily_challenge_complete', {
+        'zone': zone.id,
+        'kind': challenge!.kind.name,
+        'stars': stars,
+      });
+    }
     appState.persistAfterRound();
     AudioService.instance.playSfx(Sfx.roundComplete);
+    AnalyticsService.instance.logEvent('round_complete', {
+      'zone': zone.id,
+      'stars': stars,
+      'eggs': eggsDeliveredThisRound,
+      'coins': coinsThisRound.value,
+      if (challenge != null) 'challenge': challenge!.kind.name,
+    });
     onRoundEnd(RoundResult(
       zone: zone,
       eggsDelivered: eggsDeliveredThisRound,
@@ -668,6 +717,8 @@ class FeatherflipGame extends FlameGame<World> {
       bestStreak: bestStreakThisRound,
       stars: stars,
       unlockedNewZone: unlockedNew,
+      challengeBonus: challengeBonus,
+      challengeTitle: challenge?.title,
     ));
   }
 

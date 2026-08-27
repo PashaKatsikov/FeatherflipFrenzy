@@ -2,16 +2,18 @@ import 'package:flame/flame.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/analytics_service.dart';
 import 'core/audio_service.dart';
 import 'core/orientation.dart';
 import 'core/theme.dart';
 import 'screens/loading_screen.dart';
 import 'state/app_state.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   Flame.images.prefix = '';
   AudioService.instance.init();
+  await AnalyticsService.instance.prepare();
   runApp(const FeatherflipApp());
 }
 

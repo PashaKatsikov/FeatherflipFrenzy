@@ -89,6 +89,21 @@ class _RoundResultsScreenState extends State<RoundResultsScreen> {
                       ),
                     ],
                   ),
+                  if (result.challengeBonus > 0) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: FFColors.gold.withValues(alpha: 0.92),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        '${result.challengeTitle ?? 'Yard Challenge'} +${result.challengeBonus}',
+                        style: FFText.stat(size: 14, color: FFColors.textDark),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
                   if (!success) ...[
                     const SizedBox(height: 12),
                     Text(
@@ -132,7 +147,7 @@ class _RoundResultsScreenState extends State<RoundResultsScreen> {
                         style: FFButtonStyle.green,
                         width: 130,
                         onPressed: () => Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(builder: (_) => GameScreen(zone: result.zone)),
+                          MaterialPageRoute(builder: (_) => GameScreen(zone: result.zone, challenge: context.read<AppState>().challengeFor(result.zone))),
                         ),
                       ),
                     ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,7 @@ import '../models/chicken_skin.dart';
 import '../models/egg_type.dart';
 import '../models/quest.dart';
 import '../models/upgrade.dart';
+import '../models/yard_challenge.dart';
 import '../models/zone.dart';
 
 const String _saveKey = 'ff_save_v1';
@@ -42,6 +44,11 @@ class AppState extends ChangeNotifier {
 
   /// Date (yyyy-MM-dd) the free daily gift was last collected.
   String lastDailyGiftDate = '';
+
+  String dailyChallengeZoneId = '';
+  String dailyChallengeKind = '';
+  String lastDailyChallengeDate = '';
+  String lastDailyChallengeClaimDate = '';
 
   final Set<String> achievementClaimed = {};
 
@@ -102,6 +109,10 @@ class AppState extends ChangeNotifier {
           ..addAll(((json['dailyClaimed'] as List?) ?? []).map((e) => e as String));
         lastDailyResetDate = json['lastDailyResetDate'] as String? ?? '';
         lastDailyGiftDate = json['lastDailyGiftDate'] as String? ?? '';
+        dailyChallengeZoneId = json['dailyChallengeZoneId'] as String? ?? '';
+        dailyChallengeKind = json['dailyChallengeKind'] as String? ?? '';
+        lastDailyChallengeDate = json['lastDailyChallengeDate'] as String? ?? '';
+        lastDailyChallengeClaimDate = json['lastDailyChallengeClaimDate'] as String? ?? '';
         achievementClaimed
           ..clear()
           ..addAll(((json['achievementClaimed'] as List?) ?? []).map((e) => e as String));
@@ -117,6 +128,7 @@ class AppState extends ChangeNotifier {
     }
     await _reconcileProfilePhoto();
     _maybeResetDaily();
+    _rollDailyChallengeIfNeeded();
     _loaded = true;
     notifyListeners();
   }
@@ -149,6 +161,10 @@ class AppState extends ChangeNotifier {
       'dailyClaimed': dailyClaimed.toList(),
       'lastDailyResetDate': lastDailyResetDate,
       'lastDailyGiftDate': lastDailyGiftDate,
+      'dailyChallengeZoneId': dailyChallengeZoneId,
+      'dailyChallengeKind': dailyChallengeKind,
+      'lastDailyChallengeDate': lastDailyChallengeDate,
+      'lastDailyChallengeClaimDate': lastDailyChallengeClaimDate,
       'achievementClaimed': achievementClaimed.toList(),
       'sfxOn': sfxOn,
       'vibrationOn': vibrationOn,
@@ -174,7 +190,9 @@ class AppState extends ChangeNotifier {
   /// foreground so a session left open past midnight still refreshes quests.
   void refreshDailyState() {
     if (!_loaded) return;
-    if (_maybeResetDaily()) {
+    var changed = _maybeResetDaily();
+    if (_rollDailyChallengeIfNeeded()) changed = true;
+    if (changed) {
       notifyListeners();
       _scheduleSave();
     }
@@ -194,6 +212,48 @@ class AppState extends ChangeNotifier {
     addCoins(dailyGiftAmount);
     notifyListeners();
     _scheduleSave();
+    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // Daily Yard Challenge
+  // ---------------------------------------------------------------------
+
+  YardChallenge? get todaysChallenge {
+    final kind = YardChallenge.kindFromName(dailyChallengeKind);
+    if (kind == null || dailyChallengeZoneId.isEmpty) return null;
+    return YardChallenge(kind: kind, zoneId: dailyChallengeZoneId);
+  }
+
+  YardChallenge? challengeFor(ZoneDef zone) {
+    final challenge = todaysChallenge;
+    if (challenge == null || challenge.zoneId != zone.id) return null;
+    return challenge;
+  }
+
+  bool get dailyChallengeRewardAvailable => lastDailyChallengeClaimDate != _today;
+
+  bool _rollDailyChallengeIfNeeded() {
+    if (lastDailyChallengeDate == _today &&
+        dailyChallengeZoneId.isNotEmpty &&
+        YardChallenge.kindFromName(dailyChallengeKind) != null) {
+      return false;
+    }
+    lastDailyChallengeDate = _today;
+    final rng = math.Random(_today.hashCode);
+    dailyChallengeZoneId = kZones[rng.nextInt(kZones.length)].id;
+    dailyChallengeKind = YardChallengeKind.values[rng.nextInt(YardChallengeKind.values.length)].name;
+    return true;
+  }
+
+  /// Grants the one-a-day Yard Challenge bonus. Returns false if it was
+  /// already collected today.
+  bool claimDailyChallengeReward() {
+    if (!dailyChallengeRewardAvailable) return false;
+    lastDailyChallengeClaimDate = _today;
+    addCoins(YardChallengeRules.completionBonus);
+    notifyListeners();
+    _save();
     return true;
   }
 

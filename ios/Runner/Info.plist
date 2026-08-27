@@ -28,6 +28,8 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>This helps us understand how you discovered Featherflip Frenzy so we can keep the farmyard growing.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to use as your farmyard profile picture.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

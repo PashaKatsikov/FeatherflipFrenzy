@@ -2,6 +2,7 @@ import 'package:flame/flame.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/analytics_service.dart';
 import '../core/assets.dart';
 import '../core/audio_service.dart';
 import '../core/haptics.dart';
@@ -71,6 +72,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
     if (!mounted) return;
     AudioService.instance.setSfxEnabled(appState.sfxOn);
     Haptics.instance.setEnabled(appState.vibrationOn);
+    await AnalyticsService.instance.start();
 
     final elapsed = stopwatch.elapsedMilliseconds;
     const minDisplayMs = 1100;
