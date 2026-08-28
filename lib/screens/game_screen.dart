@@ -188,7 +188,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   child: AnimatedOpacity(
                     key: ValueKey(text),
                     opacity: 1,
-                    duration: const Duration(milliseconds: 200),
+                    duration: const Duration(milliseconds: 215),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                       decoration: BoxDecoration(

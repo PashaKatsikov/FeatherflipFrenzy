@@ -8,8 +8,8 @@ class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
-  static const _id = 1001;
-  static const _channelId = 'coop_daily';
+  static const _id = 2384;
+  static const _channelId = 'ff_hen_chime';
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
@@ -56,7 +56,7 @@ class NotificationService {
       const NotificationDetails(
         android: AndroidNotificationDetails(
           _channelId,
-          'Coop reminders',
+          'Hen chimes',
           channelDescription: 'Daily reminder to play Featherflip Frenzy',
           importance: Importance.high,
           priority: Priority.high,

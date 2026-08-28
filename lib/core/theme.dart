@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 /// Premium-casual farmyard color palette, matching the painted art style of
@@ -83,4 +85,38 @@ ThemeData buildFFTheme() {
       },
     ),
   );
+}
+
+/// "Loading" with a cycling `.` / `..` / `...` suffix.
+class LoadingDotsLabel extends StatefulWidget {
+  const LoadingDotsLabel({super.key, required this.style});
+
+  final TextStyle style;
+
+  @override
+  State<LoadingDotsLabel> createState() => _LoadingDotsLabelState();
+}
+
+class _LoadingDotsLabelState extends State<LoadingDotsLabel> {
+  int _step = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 355), (_) {
+      if (mounted) setState(() => _step = (_step + 1) % 4);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('Loading${'.' * _step}', style: widget.style);
+  }
 }

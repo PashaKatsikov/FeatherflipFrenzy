@@ -1,17 +1,13 @@
-# featherflipfrenzygame
+# Featherflip Frenzy
 
-Featherflip Frenzy - a farmyard egg-flicking arcade game
+A farmyard arcade game: flick eggs home, unlock new yards, dress your hen,
+and chase daily quests across the coop.
 
-## Getting Started
+Flick, collect, and upgrade your way through pasture, river, and lake zones.
+Capture a farmyard profile photo, pick a reminder hour, and keep the coop
+stirring.
 
-This project is a starting point for a Flutter application.
+## Requirements
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Flutter 3.32+
+- iOS 15.0+

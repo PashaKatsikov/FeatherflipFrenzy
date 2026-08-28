@@ -2,7 +2,6 @@ import 'package:flame/flame.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../core/analytics_service.dart';
 import '../core/assets.dart';
 import '../core/audio_service.dart';
 import '../core/haptics.dart';
@@ -73,7 +72,6 @@ class _LoadingScreenState extends State<LoadingScreen> {
     if (!mounted) return;
     AudioService.instance.setSfxEnabled(appState.sfxOn);
     Haptics.instance.setEnabled(appState.vibrationOn);
-    await AnalyticsService.instance.start();
     if (appState.notificationsOn) {
       await NotificationService.instance.scheduleDaily(
         hour: appState.notificationHour,
@@ -82,7 +80,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
     }
 
     final elapsed = stopwatch.elapsedMilliseconds;
-    const minDisplayMs = 1100;
+    const minDisplayMs = 1250;
     if (elapsed < minDisplayMs) {
       await Future.delayed(Duration(milliseconds: minDisplayMs - elapsed));
     }
@@ -125,7 +123,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
                             children: [
                               Container(color: Colors.black.withValues(alpha: 0.35)),
                               AnimatedFractionallySizedBox(
-                                duration: const Duration(milliseconds: 180),
+                                duration: const Duration(milliseconds: 195),
                                 widthFactor: _progress.clamp(0.03, 1.0),
                                 alignment: Alignment.centerLeft,
                                 child: Container(
@@ -139,9 +137,9 @@ class _LoadingScreenState extends State<LoadingScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        'Loading the farm...',
-                        style: FFText.body(size: 15, color: Colors.white).copyWith(
+                      LoadingDotsLabel(
+                        style: FFText.body(size: 22.5, color: Colors.white).copyWith(
+                          fontWeight: FontWeight.w700,
                           shadows: const [Shadow(color: Colors.black54, blurRadius: 3, offset: Offset(0, 1))],
                         ),
                       ),

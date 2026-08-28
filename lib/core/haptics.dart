@@ -10,7 +10,7 @@ class Haptics {
 
   /// Gameplay can trigger hits several times per second; firing the platform
   /// channel that often is both wasteful and unpleasant to feel.
-  static const Duration _minInterval = Duration(milliseconds: 90);
+  static const Duration _minInterval = Duration(milliseconds: 72);
   DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
 
   void setEnabled(bool value) => enabled = value;

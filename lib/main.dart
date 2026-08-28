@@ -1,32 +1,104 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flame/flame.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'core/analytics_service.dart';
 import 'core/audio_service.dart';
 import 'core/notification_service.dart';
 import 'core/orientation.dart';
 import 'core/theme.dart';
 import 'screens/loading_screen.dart';
+import 'screens/yard_splash.dart';
 import 'state/app_state.dart';
+import 'yardflow/config/flip_gate_config.dart';
+import 'yardflow/flip_coordinator.dart';
+import 'yardflow/infra/flip_agent.dart';
+import 'yardflow/infra/flip_pulse.dart';
+import 'yardflow/infra/flip_trace.dart';
+import 'yardflow/infra/gate_dispatch.dart';
+import 'yardflow/infra/yard_locker.dart';
+import 'yardflow/infra/yard_reach.dart';
+import 'yardflow/infra/yard_tracker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   Flame.images.prefix = '';
   AudioService.instance.init();
-  await AnalyticsService.instance.prepare();
   await NotificationService.instance.init();
-  runApp(const FeatherflipApp());
+
+  final locker = YardLocker();
+  final agent = FlipAgent();
+  await Future.wait<void>(<Future<void>>[
+    locker.initialize(),
+    agent.prepare(),
+  ]);
+
+  flipTrace(
+    () => '[FF.COOP] creds=${FlipGateConfig.grayCredentialsReady} '
+        'endpoint=${FlipGateConfig.endpoint}',
+  );
+
+  var productionServicesReady = false;
+  if (FlipGateConfig.grayCredentialsReady) {
+    try {
+      await Firebase.initializeApp();
+      productionServicesReady = true;
+      flipTrace(() => '[FF.COOP] Firebase ready');
+    } catch (error) {
+      flipTrace(() => '[FF.COOP] Firebase failed: $error');
+    }
+    if (productionServicesReady) {
+      try {
+        await FirebaseAppCheck.instance.activate(
+          providerApple: kDebugMode
+              ? const AppleDebugProvider()
+              : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+        );
+      } catch (error) {
+        flipTrace(() => '[FF.COOP] AppCheck skipped: $error');
+      }
+    }
+  }
+
+  final reach = YardReach();
+  final pulse = FlipPulse(locker, enabled: productionServicesReady);
+  final tracker = YardTracker(agent);
+  final coordinator = FlipCoordinator(
+    locker: locker,
+    reach: reach,
+    tracker: tracker,
+    dispatch: GateDispatch(agent, locker),
+    pulse: pulse,
+    agent: agent,
+    runtimeEnabled: FlipGateConfig.grayCredentialsReady,
+  );
+
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Color(0xFF3E9E3B),
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+
+  runApp(FeatherflipApp(coordinator: coordinator));
 }
 
 class FeatherflipApp extends StatefulWidget {
-  const FeatherflipApp({super.key});
+  const FeatherflipApp({super.key, this.coordinator});
+
+  final FlipCoordinator? coordinator;
 
   @override
   State<FeatherflipApp> createState() => _FeatherflipAppState();
 }
 
-class _FeatherflipAppState extends State<FeatherflipApp> with WidgetsBindingObserver {
+class _FeatherflipAppState extends State<FeatherflipApp>
+    with WidgetsBindingObserver {
   final AppState _appState = AppState();
 
   @override
@@ -45,8 +117,6 @@ class _FeatherflipAppState extends State<FeatherflipApp> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
-    // A scene restored by iOS (notably iPad) can come back in the wrong
-    // orientation, and a session left open overnight needs fresh dailies.
     GameOrientation.reapplyIfLocked();
     _appState.refreshDailyState();
   }
@@ -61,13 +131,13 @@ class _FeatherflipAppState extends State<FeatherflipApp> with WidgetsBindingObse
         theme: buildFFTheme(),
         locale: const Locale('en', 'US'),
         supportedLocales: const [Locale('en', 'US')],
-        // The HUD and menu panels are laid out for a game-like fixed scale;
-        // very large accessibility text sizes would otherwise clip them.
         builder: (context, child) => MediaQuery.withClampedTextScaling(
           maxScaleFactor: 1.2,
           child: child ?? const SizedBox.shrink(),
         ),
-        home: const LoadingScreen(),
+        home: widget.coordinator == null
+            ? const LoadingScreen()
+            : YardSplash(coordinator: widget.coordinator!),
       ),
     );
   }

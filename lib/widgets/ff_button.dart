@@ -63,7 +63,7 @@ class _FFButtonState extends State<FFButton> {
             },
       child: AnimatedScale(
         scale: _pressed ? 0.95 : 1.0,
-        duration: const Duration(milliseconds: 90),
+        duration: const Duration(milliseconds: 72),
         child: Container(
           width: widget.width,
           height: widget.height,

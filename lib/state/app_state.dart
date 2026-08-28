@@ -146,7 +146,7 @@ class AppState extends ChangeNotifier {
   /// (a streak of deliveries, quest claims) into a single disk write.
   void _scheduleSave() {
     _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(milliseconds: 400), _save);
+    _saveDebounce = Timer(const Duration(milliseconds: 375), _save);
   }
 
   Future<void> _save() async {

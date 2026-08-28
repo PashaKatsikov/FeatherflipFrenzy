@@ -6,7 +6,7 @@ class AudioService {
   AudioService._();
   static final AudioService instance = AudioService._();
 
-  final List<AudioPlayer> _sfxPool = List.generate(6, (i) => AudioPlayer(playerId: 'ff_sfx_$i'));
+  final List<AudioPlayer> _sfxPool = List.generate(6, (i) => AudioPlayer(playerId: 'hen_sfx_$i'));
   int _sfxCursor = 0;
 
   bool sfxEnabled = true;

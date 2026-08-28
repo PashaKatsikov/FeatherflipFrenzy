@@ -341,15 +341,30 @@ class _ProfileAvatar extends StatelessWidget {
         border: Border.all(color: const Color(0xFFD9A971), width: 3),
         color: FFColors.panelBrownDark,
       ),
-      clipBehavior: Clip.antiAlias,
-      child: busy
-          ? const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: FFColors.gold)))
-          : hasFile
-              ? Image.file(file, key: ValueKey('$path-$nonce'), fit: BoxFit.cover)
-              : Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Image.asset(Sprites.chickenMain, fit: BoxFit.contain),
-                ),
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: ClipOval(
+          child: busy
+              ? const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: FFColors.gold)))
+              : hasFile
+                  ? Transform.scale(
+                      scale: 1.22,
+                      child: Image.file(
+                        file,
+                        key: ValueKey('$path-$nonce'),
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        alignment: Alignment.center,
+                        filterQuality: FilterQuality.medium,
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Image.asset(Sprites.chickenMain, fit: BoxFit.contain),
+                    ),
+        ),
+      ),
     );
   }
 }
