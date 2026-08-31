@@ -9,6 +9,7 @@ class FlipTapBridge {
     if (!Platform.isIOS) return null;
     try {
       final preferences = await SharedPreferences.getInstance();
+      await preferences.reload();
       final value = preferences.getString(dartKey)?.trim();
       if (value == null || value.isEmpty) return null;
       await preferences.remove(dartKey);

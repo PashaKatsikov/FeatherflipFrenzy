@@ -10,6 +10,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../infra/flip_agent.dart';
 import '../infra/flip_pulse.dart';
+import '../infra/flip_tap_bridge.dart';
 import '../infra/yard_locker.dart';
 import '../infra/yard_reach.dart';
 import 'quiet_yard_page.dart';
@@ -210,7 +211,8 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
   }
 
   Future<void> _consumePending() async {
-    final value = await widget.locker.consumePushUrl();
+    final value =
+        await FlipTapBridge.consume() ?? await widget.locker.consumePushUrl();
     final uri = value == null ? null : Uri.tryParse(value);
     if (mounted && uri != null && uri.hasScheme) {
       await _openHref(uri);

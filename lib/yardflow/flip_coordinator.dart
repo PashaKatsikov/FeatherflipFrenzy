@@ -55,7 +55,9 @@ class FlipCoordinator {
 
     flipTrace(() => '[FF.COOP] decide start route=${locker.route}');
     pulse.onTokenChanged = _refreshForToken;
-    final coldRoute = await FlipTapBridge.consume();
+    await pulse.captureLaunchTap();
+    final coldRoute =
+        await FlipTapBridge.consume() ?? await locker.consumePushUrl();
     if (coldRoute != null) {
       if (!await _liveNetwork()) {
         await locker.stashPushUrl(coldRoute);

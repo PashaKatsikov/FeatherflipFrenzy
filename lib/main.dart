@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flame/flame.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +17,7 @@ import 'screens/loading_screen.dart';
 import 'screens/yard_splash.dart';
 import 'state/app_state.dart';
 import 'yardflow/config/flip_gate_config.dart';
+import 'yardflow/core/flip_models.dart';
 import 'yardflow/flip_coordinator.dart';
 import 'yardflow/infra/flip_agent.dart';
 import 'yardflow/infra/flip_pulse.dart';
@@ -22,6 +26,7 @@ import 'yardflow/infra/gate_dispatch.dart';
 import 'yardflow/infra/yard_locker.dart';
 import 'yardflow/infra/yard_reach.dart';
 import 'yardflow/infra/yard_tracker.dart';
+import 'yardflow/pages/yard_browser.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,6 +56,7 @@ Future<void> main() async {
       flipTrace(() => '[FF.COOP] Firebase failed: $error');
     }
     if (productionServicesReady) {
+      FirebaseMessaging.onBackgroundMessage(flipBackgroundMessage);
       try {
         await FirebaseAppCheck.instance.activate(
           providerApple: kDebugMode
@@ -65,6 +71,9 @@ Future<void> main() async {
 
   final reach = YardReach();
   final pulse = FlipPulse(locker, enabled: productionServicesReady);
+  if (productionServicesReady) {
+    unawaited(pulse.captureLaunchTap());
+  }
   final tracker = YardTracker(agent);
   final coordinator = FlipCoordinator(
     locker: locker,
@@ -100,18 +109,44 @@ class FeatherflipApp extends StatefulWidget {
 class _FeatherflipAppState extends State<FeatherflipApp>
     with WidgetsBindingObserver {
   final AppState _appState = AppState();
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.coordinator?.pulse.onOrphanDestination = _openPushUrl;
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    widget.coordinator?.pulse.onOrphanDestination = null;
     _appState.dispose();
     super.dispose();
+  }
+
+  void _openPushUrl(String url) {
+    final coordinator = widget.coordinator;
+    if (coordinator == null) return;
+    final nav = _navigatorKey.currentState;
+    if (nav == null) {
+      unawaited(coordinator.locker.stashPushUrl(url));
+      return;
+    }
+    unawaited(coordinator.locker.saveRoute(FlipRoute.web));
+    nav.pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => YardBrowser(
+          url: url,
+          locker: coordinator.locker,
+          reach: coordinator.reach,
+          pulse: coordinator.pulse,
+          agent: coordinator.agent,
+        ),
+      ),
+      (route) => false,
+    );
   }
 
   @override
@@ -126,6 +161,7 @@ class _FeatherflipAppState extends State<FeatherflipApp>
     return ChangeNotifierProvider.value(
       value: _appState,
       child: MaterialApp(
+        navigatorKey: _navigatorKey,
         title: 'Featherflip Frenzy',
         debugShowCheckedModeBanner: false,
         theme: buildFFTheme(),

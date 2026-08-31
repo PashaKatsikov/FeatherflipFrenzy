@@ -62,31 +62,56 @@ class _QuietYardPageState extends State<QuietYardPage> {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final landscape = media.orientation == Orientation.landscape;
-    final background = landscape
-        ? 'assets/Featherflip_Frenzy_additional_assets/Horizontal_Nowifi_Screen.webp'
-        : 'assets/Featherflip_Frenzy_additional_assets/Vertical_Nowifi_Screen.webp';
     final width = landscape
         ? (media.size.width * 0.40).clamp(300.0, 520.0)
         : (media.size.width * 0.66).clamp(260.0, 420.0);
     final height = landscape ? 70.0 : 74.0;
-    final align = landscape ? const Alignment(0, 0.82) : const Alignment(0, 0.80);
+    final titleSize = landscape ? 26.0 : 28.0;
+    final bodySize = landscape ? 16.0 : 17.0;
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          Image.asset(
-            background,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.high,
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[
+              Color(0xFF2E7A2C),
+              Color(0xFF1F4F1E),
+            ],
           ),
-          Align(
-            alignment: align,
+        ),
+        child: SizedBox.expand(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
+                Text(
+                  'NO INTERNET CONNECTION',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'Fredoka',
+                    color: Colors.white,
+                    fontSize: titleSize,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                    height: 1.15,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Check your connection and try again',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'Fredoka',
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: bodySize,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                  ),
+                ),
+                SizedBox(height: landscape ? 28 : 36),
                 _RetryButton(
                   width: width,
                   height: height,
@@ -104,9 +129,6 @@ class _QuietYardPageState extends State<QuietYardPage> {
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
-                              shadows: <Shadow>[
-                                Shadow(color: Colors.black, blurRadius: 5),
-                              ],
                             ),
                           ),
                         )
@@ -115,7 +137,7 @@ class _QuietYardPageState extends State<QuietYardPage> {
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

@@ -80,7 +80,10 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.text('NO INTERNET CONNECTION'), findsOneWidget);
+    expect(find.text('Check your connection and try again'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
     expect(find.byType(SafeArea), findsNothing);
 
     tester.view.physicalSize = const Size(2532, 1170);
@@ -94,6 +97,9 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.text('NO INTERNET CONNECTION'), findsOneWidget);
+    expect(find.text('Check your connection and try again'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
   });
 }

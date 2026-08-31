@@ -11,8 +11,8 @@ abstract final class FlipGateConfig {
       'https://featherflipfrenzy.com/privacy-policy.html';
   static const String supportUrl = 'https://featherflipfrenzy.com/support.html';
 
-  /// Skip hides the invite until the next launch after this delay (3 d 3 h 19 m).
-  static const int pushSnoozeSeconds = 271140;
+  /// Skip hides the invite until the next launch after this delay (2 d 22 h 7 m).
+  static const int pushSnoozeSeconds = 252420;
   static const int organicRecheckSeconds = 10;
   static const int savedUrlExpiryDays = 8;
   static const int configPostTimeoutSeconds = 22;
