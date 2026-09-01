@@ -17,10 +17,10 @@ import 'screens/loading_screen.dart';
 import 'screens/yard_splash.dart';
 import 'state/app_state.dart';
 import 'yardflow/config/flip_gate_config.dart';
-import 'yardflow/core/flip_models.dart';
 import 'yardflow/flip_coordinator.dart';
 import 'yardflow/infra/flip_agent.dart';
 import 'yardflow/infra/flip_pulse.dart';
+import 'yardflow/infra/flip_tap_bridge.dart';
 import 'yardflow/infra/flip_trace.dart';
 import 'yardflow/infra/gate_dispatch.dart';
 import 'yardflow/infra/yard_locker.dart';
@@ -71,9 +71,6 @@ Future<void> main() async {
 
   final reach = YardReach();
   final pulse = FlipPulse(locker, enabled: productionServicesReady);
-  if (productionServicesReady) {
-    unawaited(pulse.captureLaunchTap());
-  }
   final tracker = YardTracker(agent);
   final coordinator = FlipCoordinator(
     locker: locker,
@@ -115,7 +112,11 @@ class _FeatherflipAppState extends State<FeatherflipApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    widget.coordinator?.pulse.onOrphanDestination = _openPushUrl;
+    final coordinator = widget.coordinator;
+    if (coordinator != null) {
+      coordinator.pulse.onOrphanDestination = _openPushUrl;
+      unawaited(coordinator.pulse.captureLaunchTap());
+    }
   }
 
   @override
@@ -127,18 +128,30 @@ class _FeatherflipAppState extends State<FeatherflipApp>
   }
 
   void _openPushUrl(String url) {
+    unawaited(_openPushUrlAsync(url));
+  }
+
+  Future<void> _openPushUrlAsync(String url) async {
     final coordinator = widget.coordinator;
     if (coordinator == null) return;
-    final nav = _navigatorKey.currentState;
-    if (nav == null) {
-      unawaited(coordinator.locker.stashPushUrl(url));
-      return;
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    await coordinator.locker.persistPushDestination(trimmed);
+    if (!coordinator.claimPushOpen(trimmed)) return;
+
+    NavigatorState? nav = _navigatorKey.currentState;
+    for (var attempt = 0; attempt < 12 && nav == null; attempt++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      nav = _navigatorKey.currentState;
     }
-    unawaited(coordinator.locker.saveRoute(FlipRoute.web));
+    if (nav == null) return;
+
     nav.pushAndRemoveUntil(
       MaterialPageRoute<void>(
         builder: (_) => YardBrowser(
-          url: url,
+          url: trimmed,
+          coldLaunch: true,
           locker: coordinator.locker,
           reach: coordinator.reach,
           pulse: coordinator.pulse,
@@ -149,11 +162,23 @@ class _FeatherflipAppState extends State<FeatherflipApp>
     );
   }
 
+  Future<void> _reopenNativeTap() async {
+    final coordinator = widget.coordinator;
+    if (coordinator == null) return;
+    // A mounted browser consumes the tap itself and loads it in place.
+    if (coordinator.pulse.onDestination != null) return;
+    final tapped = await FlipTapBridge.consume();
+    if (tapped == null || tapped.isEmpty) return;
+    await coordinator.locker.persistPushDestination(tapped);
+    await _openPushUrlAsync(tapped);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
     GameOrientation.reapplyIfLocked();
     _appState.refreshDailyState();
+    unawaited(_reopenNativeTap());
   }
 
   @override

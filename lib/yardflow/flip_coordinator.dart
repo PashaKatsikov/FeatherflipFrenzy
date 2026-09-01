@@ -5,7 +5,6 @@ import 'config/flip_gate_config.dart';
 import 'core/flip_models.dart';
 import 'infra/flip_agent.dart';
 import 'infra/flip_pulse.dart';
-import 'infra/flip_tap_bridge.dart';
 import 'infra/flip_trace.dart';
 import 'infra/gate_dispatch.dart';
 import 'infra/yard_locker.dart';
@@ -34,6 +33,22 @@ class FlipCoordinator {
   bool get enabled => runtimeEnabled && FlipGateConfig.grayCredentialsReady;
 
   Future<FlipDestination>? _decideFuture;
+  String? _lastPushOpen;
+  DateTime? _lastPushOpenAt;
+
+  /// The splash and the app-level tap listener can both react to one tap;
+  /// only the first caller gets to navigate.
+  bool claimPushOpen(String url) {
+    final now = DateTime.now();
+    if (_lastPushOpen == url &&
+        _lastPushOpenAt != null &&
+        now.difference(_lastPushOpenAt!) < const Duration(seconds: 3)) {
+      return false;
+    }
+    _lastPushOpen = url;
+    _lastPushOpenAt = now;
+    return true;
+  }
 
   Future<FlipDestination> decide({
     required void Function(double value) onProgress,
@@ -44,6 +59,20 @@ class FlipCoordinator {
   Future<FlipDestination> _decide({
     required void Function(double value) onProgress,
   }) async {
+    pulse.onTokenChanged = _refreshForToken;
+
+    var pushUrl = await pulse.takePushUrl();
+    if (pushUrl == null) {
+      await pulse.captureLaunchTap();
+      pushUrl = await pulse.takePushUrl();
+    } else {
+      unawaited(pulse.captureLaunchTap());
+    }
+    if (pushUrl != null) {
+      flipTrace(() => '[FF.COOP] push dest=$pushUrl');
+      return _openPush(pushUrl, onProgress);
+    }
+
     if (!enabled) {
       flipTrace(
         () => '[FF.COOP] gate off runtime=$runtimeEnabled '
@@ -54,33 +83,37 @@ class FlipCoordinator {
     }
 
     flipTrace(() => '[FF.COOP] decide start route=${locker.route}');
-    pulse.onTokenChanged = _refreshForToken;
-    await pulse.captureLaunchTap();
-    final coldRoute =
-        await FlipTapBridge.consume() ?? await locker.consumePushUrl();
-    if (coldRoute != null) {
-      if (!await _liveNetwork()) {
-        await locker.stashPushUrl(coldRoute);
-        await locker.saveRoute(FlipRoute.web);
-        return const QuietYard(returnToYard: false);
-      }
-      await locker.saveRoute(FlipRoute.web);
-      await locker.consumePushUrl();
-      unawaited(_backgroundDispatch());
-      onProgress(1);
-      return WebYard(coldRoute, coldLaunch: true);
-    }
 
     if (locker.route != FlipRoute.yard && !await _liveNetwork()) {
       return const QuietYard(returnToYard: false);
     }
 
     onProgress(0.12);
-    return switch (locker.route) {
+    final decided = await switch (locker.route) {
       FlipRoute.fresh => _firstDecision(onProgress),
       FlipRoute.web => _returningWeb(onProgress),
       FlipRoute.yard => _returningYard(onProgress),
     };
+    return await _preferFreshPush(decided);
+  }
+
+  Future<FlipDestination> _openPush(
+    String url,
+    void Function(double) onProgress,
+  ) async {
+    await locker.persistPushDestination(url);
+    if (!await _liveNetwork()) {
+      return const QuietYard(returnToYard: false);
+    }
+    unawaited(_backgroundDispatch());
+    onProgress(1);
+    return WebYard(url, coldLaunch: true, fromPush: true);
+  }
+
+  Future<FlipDestination> _preferFreshPush(FlipDestination decided) async {
+    final latest = await pulse.takePushUrl();
+    if (latest == null) return decided;
+    return WebYard(latest, coldLaunch: true, fromPush: true);
   }
 
   Future<bool> _liveNetwork() async {
@@ -99,6 +132,11 @@ class FlipCoordinator {
       tracker.ensureConsent(),
       pulse.boot(),
     ]);
+    final midPush = await pulse.takePushUrl();
+    if (midPush != null) {
+      progress(1);
+      return WebYard(midPush, coldLaunch: true, fromPush: true);
+    }
     progress(0.52);
     await tracker.awaitSignals();
     progress(0.78);
@@ -118,10 +156,10 @@ class FlipCoordinator {
   Future<FlipDestination> _returningWeb(
     void Function(double) progress,
   ) async {
-    final pending = await locker.consumePushUrl();
+    final pending = await locker.peekPushUrl();
     if (pending != null && pending.isNotEmpty) {
       progress(1);
-      return WebYard(pending);
+      return WebYard(pending, coldLaunch: true, fromPush: true);
     }
     final cached = await locker.savedUrl();
     if (cached != null && !locker.cachedUrlExpired) {
@@ -136,6 +174,11 @@ class FlipCoordinator {
       pulse.boot(),
       tracker.start(),
     ]);
+    final midPush = await pulse.takePushUrl();
+    if (midPush != null) {
+      progress(1);
+      return WebYard(midPush, coldLaunch: true, fromPush: true);
+    }
     progress(0.62);
     await tracker.awaitSignals(
       installTimeout: const Duration(seconds: FlipGateConfig.installSignalSeconds),
@@ -161,6 +204,11 @@ class FlipCoordinator {
       pulse.boot(),
       tracker.start(),
     ]);
+    final midPush = await pulse.takePushUrl();
+    if (midPush != null) {
+      progress(1);
+      return WebYard(midPush, coldLaunch: true, fromPush: true);
+    }
     progress(0.55);
     await tracker.awaitSignals();
     final reply = await _requestConfig();

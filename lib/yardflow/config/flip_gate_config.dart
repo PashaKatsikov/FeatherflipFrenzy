@@ -14,6 +14,9 @@ abstract final class FlipGateConfig {
   /// Skip hides the invite until the next launch after this delay (2 d 22 h 7 m).
   static const int pushSnoozeSeconds = 252420;
   static const int organicRecheckSeconds = 10;
+
+  /// How long an untapped-through push URL may still win over the config.
+  static const int pushHoldSeconds = 600;
   static const int savedUrlExpiryDays = 8;
   static const int configPostTimeoutSeconds = 22;
   static const int installSignalSeconds = 8;

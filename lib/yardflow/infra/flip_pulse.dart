@@ -3,8 +3,11 @@ import 'dart:convert';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 
+import 'flip_tap_bridge.dart';
+import 'flip_trace.dart';
 import 'yard_locker.dart';
 
+/// Delivery is not a tap: routing here would hijack the next organic launch.
 @pragma('vm:entry-point')
 Future<void> flipBackgroundMessage(RemoteMessage _) async {}
 
@@ -17,6 +20,7 @@ class FlipPulse {
   Future<void>? _bootFuture;
   Future<void>? _launchFuture;
   Future<bool>? _permissionFuture;
+  StreamSubscription<RemoteMessage>? _openedSubscription;
   String? _token;
 
   void Function(String url)? onDestination;
@@ -29,23 +33,79 @@ class FlipPulse {
 
   Future<void> captureLaunchTap() => _launchFuture ??= _captureLaunchTap();
 
+  Future<void> persistAndDeliver(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    try {
+      await _locker.persistPushDestination(trimmed);
+    } catch (_) {}
+    final live = onDestination;
+    if (live != null) {
+      live(trimmed);
+      return;
+    }
+    onOrphanDestination?.call(trimmed);
+  }
+
+  Future<String?> takePushUrl() async {
+    final fromBridge = await _readBridge();
+    final fromLocker = await _locker.peekPushUrl();
+    final url = _firstHttpUrl(<String?>[fromBridge, fromLocker]);
+    if (url == null) return null;
+    await _locker.persistPushDestination(url);
+    return url;
+  }
+
+  Future<String?> _readBridge() async {
+    try {
+      final first = await FlipTapBridge.consume();
+      if (first != null) return first;
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 48));
+    try {
+      return await FlipTapBridge.consume();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? _firstHttpUrl(List<String?> candidates) {
+    for (final value in candidates) {
+      final trimmed = value?.trim();
+      if (trimmed == null || trimmed.isEmpty) continue;
+      final uri = Uri.tryParse(trimmed);
+      if (uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.isNotEmpty) {
+        return trimmed;
+      }
+    }
+    return null;
+  }
+
   Future<void> _captureLaunchTap() async {
     if (!enabled) return;
     final messaging = FirebaseMessaging.instance;
     _messaging = messaging;
+    _openedSubscription ??= FirebaseMessaging.onMessageOpenedApp.listen((
+      message,
+    ) {
+      final url = urlFrom(message);
+      if (url == null) return;
+      flipTrace(() => '[FF.COOP] opened-app url=$url');
+      unawaited(persistAndDeliver(url));
+    });
     try {
       final initial = await messaging.getInitialMessage().timeout(
         const Duration(seconds: 3),
         onTimeout: () => null,
       );
       final initialUrl = initial == null ? null : urlFrom(initial);
-      if (initialUrl != null) await _locker.stashPushUrl(initialUrl);
+      if (initialUrl != null) {
+        flipTrace(() => '[FF.COOP] initial url=$initialUrl');
+        await persistAndDeliver(initialUrl);
+      }
     } catch (_) {}
-    FirebaseMessaging.onMessageOpenedApp.listen((message) {
-      final url = urlFrom(message);
-      if (url == null) return;
-      _deliver(url);
-    });
   }
 
   Future<void> _boot() async {
@@ -66,20 +126,6 @@ class FlipPulse {
     _token = await messaging.getToken();
   }
 
-  void _deliver(String url) {
-    final live = onDestination;
-    if (live != null) {
-      live(url);
-      return;
-    }
-    final orphan = onOrphanDestination;
-    if (orphan != null) {
-      orphan(url);
-      return;
-    }
-    unawaited(_locker.stashPushUrl(url));
-  }
-
   static String? urlFrom(RemoteMessage message) => extract(message.data);
 
   static String? extract(Map<String, dynamic> payload) {
@@ -91,6 +137,9 @@ class FlipPulse {
       'link',
       'href',
       'redirect',
+      'open_url',
+      'web_url',
+      'click_url',
     };
 
     bool looksLikeUrl(String value) {
@@ -116,7 +165,11 @@ class FlipPulse {
           } catch (_) {}
         }
       }
-      for (final container in const <String>['payload', 'data']) {
+      for (final container in const <String>[
+        'payload',
+        'data',
+        'fcm_options',
+      ]) {
         final nested = map[container];
         if (nested is Map) {
           final found = fromMap(Map<String, dynamic>.from(nested));

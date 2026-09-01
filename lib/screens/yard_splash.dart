@@ -48,10 +48,7 @@ class _YardSplashState extends State<YardSplash>
     GameOrientation.allowLoadingOrientations();
     _ticker = createTicker(_onTick)..start();
     _deadline = Timer(const Duration(seconds: 13), () {
-      if (mounted && !_leaving) {
-        _destination ??= const YardHome();
-        _maybeLeave();
-      }
+      unawaited(_onDeadline());
     });
   }
 
@@ -96,6 +93,27 @@ class _YardSplashState extends State<YardSplash>
     _runGate();
   }
 
+  Future<void> _onDeadline() async {
+    if (!mounted || _leaving) return;
+    if (_destination is WebYard) {
+      await _openPushNow(_destination! as WebYard);
+      return;
+    }
+    final pending = await widget.coordinator.pulse.takePushUrl();
+    if (!mounted || _leaving) return;
+    if (pending != null) {
+      _destination = WebYard(pending, coldLaunch: true, fromPush: true);
+      await _openPushNow(_destination! as WebYard);
+      return;
+    }
+    if (_destination != null) {
+      await _maybeLeave();
+      return;
+    }
+    _destination = const YardHome();
+    await _maybeLeave();
+  }
+
   Future<void> _runGate() async {
     try {
       _destination = await widget.coordinator.decide(
@@ -106,7 +124,13 @@ class _YardSplashState extends State<YardSplash>
     } catch (_) {
       _destination = const YardHome();
     }
-    if (!mounted || _leaving) return;
+    if (!mounted) return;
+    if (_destination is WebYard &&
+        (_destination! as WebYard).openImmediately) {
+      await _openPushNow(_destination! as WebYard);
+      return;
+    }
+    if (_leaving) return;
     if (_destination is QuietYard) {
       _leaving = true;
       _deadline?.cancel();
@@ -114,7 +138,18 @@ class _YardSplashState extends State<YardSplash>
       return;
     }
     if (mounted) _aim(1);
-    _maybeLeave();
+    await _maybeLeave();
+  }
+
+  Future<void> _openPushNow(WebYard destination) async {
+    _deadline?.cancel();
+    _leaving = true;
+    if (!widget.coordinator.claimPushOpen(destination.url)) return;
+    if (!mounted) {
+      widget.coordinator.pulse.onOrphanDestination?.call(destination.url);
+      return;
+    }
+    await _open(destination);
   }
 
   Future<void> _maybeLeave() async {
@@ -124,6 +159,11 @@ class _YardSplashState extends State<YardSplash>
     const floor = Duration(milliseconds: 1650);
     if (elapsed < floor) {
       await Future<void>.delayed(floor - elapsed);
+    }
+    if (_destination is WebYard &&
+        (_destination! as WebYard).openImmediately) {
+      await _openPushNow(_destination! as WebYard);
+      return;
     }
     final swellUntil = DateTime.now().add(const Duration(milliseconds: 720));
     while (mounted &&
@@ -156,14 +196,15 @@ class _YardSplashState extends State<YardSplash>
     if (destination is WebYard) {
       Widget browser(BuildContext _) => YardBrowser(
         url: destination.url,
-        coldLaunch: destination.coldLaunch,
+        coldLaunch: destination.coldLaunch || destination.fromPush,
         locker: coordinator.locker,
         reach: coordinator.reach,
         pulse: coordinator.pulse,
         agent: coordinator.agent,
       );
 
-      if (coordinator.locker.shouldShowPushInvite &&
+      if (!destination.openImmediately &&
+          coordinator.locker.shouldShowPushInvite &&
           await coordinator.pulse.canOfferPermission()) {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(

@@ -13,6 +13,7 @@ class YardLocker {
   static const String _osDeniedKey = 'ff.coop.bell.os';
   static const String _savedUrlKey = 'ff.coop.vault.href';
   static const String _pendingUrlKey = 'ff.coop.vault.hold';
+  static const String _pendingAtKey = 'ff.coop.vault.hold.at';
 
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
   late SharedPreferences _preferences;
@@ -52,21 +53,66 @@ class YardLocker {
         DateTime.now().millisecondsSinceEpoch ~/ 1000 >= expiry;
   }
 
+  /// A tapped push URL is held apart from the config vault so a push never
+  /// becomes the destination of a later organic launch.
   Future<void> stashPushUrl(String url) async {
-    if (url.trim().isEmpty) return;
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
     try {
-      await _secure.write(key: _pendingUrlKey, value: url.trim());
+      final existing = (await _secure.read(key: _pendingUrlKey))?.trim();
+      await _secure.write(key: _pendingUrlKey, value: trimmed);
+      if (existing != trimmed || _preferences.getInt(_pendingAtKey) == null) {
+        await _preferences.setInt(
+          _pendingAtKey,
+          DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        );
+      }
     } catch (_) {}
   }
 
-  Future<String?> consumePushUrl() async {
+  /// Survives a kill between the tap and the first WebView frame, without
+  /// touching the cached config URL.
+  Future<void> persistPushDestination(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    await stashPushUrl(trimmed);
+    await saveRoute(FlipRoute.web);
+  }
+
+  /// A tap that never reached the WebView stays valid only briefly; after
+  /// that the config decides again.
+  bool get _pendingExpired {
+    final stamp = _preferences.getInt(_pendingAtKey);
+    if (stamp == null) return true;
+    final age = DateTime.now().millisecondsSinceEpoch ~/ 1000 - stamp;
+    return age < 0 || age > FlipGateConfig.pushHoldSeconds;
+  }
+
+  Future<String?> peekPushUrl() async {
     try {
-      final value = await _secure.read(key: _pendingUrlKey);
-      if (value != null) await _secure.delete(key: _pendingUrlKey);
-      return value;
+      final trimmed = (await _secure.read(key: _pendingUrlKey))?.trim();
+      if (trimmed == null || trimmed.isEmpty) return null;
+      if (_pendingExpired) {
+        await clearPushUrl();
+        return null;
+      }
+      return trimmed;
     } catch (_) {
       return null;
     }
+  }
+
+  Future<String?> consumePushUrl() async {
+    final value = await peekPushUrl();
+    await clearPushUrl();
+    return value;
+  }
+
+  Future<void> clearPushUrl() async {
+    try {
+      await _secure.delete(key: _pendingUrlKey);
+    } catch (_) {}
+    await _preferences.remove(_pendingAtKey);
   }
 
   bool get pushAllowed => _preferences.getBool(_permissionKey) ?? false;

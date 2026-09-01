@@ -56,10 +56,17 @@ final class YardHome extends FlipDestination {
 }
 
 final class WebYard extends FlipDestination {
-  const WebYard(this.url, {this.coldLaunch = false});
+  const WebYard(
+    this.url, {
+    this.coldLaunch = false,
+    this.fromPush = false,
+  });
 
   final String url;
   final bool coldLaunch;
+  final bool fromPush;
+
+  bool get openImmediately => fromPush || coldLaunch;
 }
 
 final class QuietYard extends FlipDestination {

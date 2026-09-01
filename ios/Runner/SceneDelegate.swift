@@ -29,6 +29,7 @@ class SceneDelegate: FlutterSceneDelegate {
   static func persist(_ destination: String) {
     let defaults = UserDefaults.standard
     defaults.set(destination, forKey: launchRouteKey)
+    defaults.synchronize()
   }
 
   static func destination(
@@ -36,6 +37,7 @@ class SceneDelegate: FlutterSceneDelegate {
   ) -> String? {
     let candidates: Set<String> = [
       "deep_link", "target", "url", "deeplink", "link", "href", "redirect",
+      "open_url", "web_url", "click_url",
     ]
 
     func looksLikeURL(_ value: String) -> Bool {
@@ -63,15 +65,17 @@ class SceneDelegate: FlutterSceneDelegate {
           }
         }
       }
-      for container in ["payload", "data"] {
+      for container in ["payload", "data", "fcm_options"] {
         if let nested = dictionary[container] as? [AnyHashable: Any],
            let value = firstValue(in: nested) {
           return value
         }
-        if let text = dictionary[container] as? String,
-           let nested = decodeJSON(text),
-           let value = firstValue(in: nested) {
-          return value
+        if let text = dictionary[container] as? String {
+          let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+          if looksLikeURL(trimmed) { return trimmed }
+          if let nested = decodeJSON(trimmed), let value = firstValue(in: nested) {
+            return value
+          }
         }
       }
       return nil

@@ -8,10 +8,9 @@ import UserNotifications
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Only a tap may route: launchOptions also carries silently delivered
+    // pushes, which would send an organic launch to the wrong page.
     application.registerForRemoteNotifications()
-    if let payload = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
-      SceneDelegate.capture(from: payload)
-    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

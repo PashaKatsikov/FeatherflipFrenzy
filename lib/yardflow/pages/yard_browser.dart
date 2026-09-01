@@ -11,6 +11,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../infra/flip_agent.dart';
 import '../infra/flip_pulse.dart';
 import '../infra/flip_tap_bridge.dart';
+import '../infra/flip_trace.dart';
 import '../infra/yard_locker.dart';
 import '../infra/yard_reach.dart';
 import 'quiet_yard_page.dart';
@@ -68,6 +69,22 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
     'blob',
   };
 
+  void Function(String url)? _onLiveDestination;
+
+  /// WebKit drops a `loadRequest` issued while the content process is
+  /// suspended, so a tap that lands before the app is active waits here.
+  String? _deferredHref;
+
+  /// Target handed to WebKit but not yet acknowledged by `onPageStarted`.
+  /// The push hold stays on disk until that acknowledgement arrives.
+  String? _awaitingConfirm;
+
+  Timer? _laneTimer;
+
+  /// Secure twin currently being tried -> the plain `http` hop it replaced.
+  final Map<String, String> _downgradeFallback = <String, String>{};
+  final Set<String> _downgradeTried = <String>{};
+
   String? _laneRoot;
   bool _inFlight = false;
   bool _jarCleared = false;
@@ -109,15 +126,18 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
           .setAllowsBackForwardNavigationGestures(true);
     }
 
-    widget.pulse.onDestination = (url) {
+    _onLiveDestination = (url) {
       final uri = Uri.tryParse(url);
       if (mounted && uri != null && uri.hasScheme) {
-        unawaited(_openHref(uri));
+        unawaited(_openHref(uri, fresh: true));
       }
     };
+    widget.pulse.onDestination = _onLiveDestination;
     _networkSubscription = widget.reach.changes.listen((states) {
       if (states.every((state) => state == ConnectivityResult.none)) {
-        _goOffline();
+        // iOS reports `none` mid hand-off while traffic still flows, so the
+        // radio state only prompts a check — it never decides on its own.
+        unawaited(_showOfflineAfterProbe());
       }
     });
 
@@ -151,17 +171,48 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
     if (!mounted) return;
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
-    await _openHref(Uri.parse(widget.url));
+    await _openHref(Uri.parse(widget.url), fresh: true);
   }
 
-  Future<void> _openHref(Uri uri) async {
+  static bool get _backgrounded {
+    final state = WidgetsBinding.instance.lifecycleState;
+    return state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+  }
+
+  /// [fresh] marks an entry point (first load, push tap) rather than a hop
+  /// inside a running chain, so no leftover lane state can distort it.
+  Future<void> _openHref(Uri uri, {bool fresh = false}) async {
+    final target = uri.toString();
+    if (_backgrounded) {
+      flipTrace(() => '[FF.COOP] deferred while background: $target');
+      _deferredHref = target;
+      return;
+    }
+    flipTrace(() => '[FF.COOP] load fresh=$fresh $target');
+    if (fresh) {
+      _laneTimer?.cancel();
+      _cuttingLane = false;
+      _redirectAttempts = 0;
+    }
     if (!_cuttingLane) {
-      _laneRoot = uri.toString();
+      _laneRoot = target;
       _hopsThisLane = 0;
       _hopsWholeChain = 0;
     }
+    _awaitingConfirm = target;
     _inFlight = true;
     await _controller.loadRequest(uri);
+  }
+
+  /// WebKit really started the navigation, so the hold has done its job.
+  Future<void> _confirmStarted() async {
+    final target = _awaitingConfirm;
+    _awaitingConfirm = null;
+    if (target == null) return;
+    final held = await widget.locker.peekPushUrl();
+    if (held == target) await widget.locker.clearPushUrl();
   }
 
   @override
@@ -206,27 +257,53 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _enterImmersive();
-      _consumePending();
+      unawaited(_resumeWork());
     }
   }
 
+  Future<void> _resumeWork() async {
+    final deferred = _deferredHref;
+    _deferredHref = null;
+    if (deferred != null) {
+      final uri = Uri.tryParse(deferred);
+      if (mounted && uri != null && uri.hasScheme) {
+        await _openHref(uri, fresh: true);
+        return;
+      }
+    }
+    await _consumePending();
+  }
+
+  /// A native tap always wins; a surviving hold means an earlier tap never
+  /// reached WebKit, so it is re-issued instead of being dropped.
   Future<void> _consumePending() async {
-    final value =
-        await FlipTapBridge.consume() ?? await widget.locker.consumePushUrl();
-    final uri = value == null ? null : Uri.tryParse(value);
+    final tapped = await FlipTapBridge.consume();
+    final target = tapped ?? await widget.locker.peekPushUrl();
+    if (target == null || target.isEmpty) return;
+    flipTrace(() => '[FF.COOP] resume pending tap=${tapped != null} $target');
+    if (target == _awaitingConfirm || target == _deferredHref) return;
+    if (tapped == null && target == _lastMainUrl) {
+      await widget.locker.clearPushUrl();
+      return;
+    }
+    await widget.locker.persistPushDestination(target);
+    final uri = Uri.tryParse(target);
     if (mounted && uri != null && uri.hasScheme) {
-      await _openHref(uri);
+      await _openHref(uri, fresh: true);
     }
   }
 
   NavigationDelegate _navigation() {
     return NavigationDelegate(
       onPageStarted: (url) {
+        flipTrace(() => '[FF.COOP] started $url');
         _lastMainUrl = url;
         _inFlight = true;
+        unawaited(_confirmStarted());
         _installYardShell();
       },
-      onPageFinished: (_) {
+      onPageFinished: (url) {
+        flipTrace(() => '[FF.COOP] finished $url');
         _redirectAttempts = 0;
         _jarCleared = false;
         _inFlight = false;
@@ -246,7 +323,16 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
         });
       },
       onWebResourceError: (error) {
-        if (error.errorCode == -999) return;
+        flipTrace(
+          () => '[FF.COOP] weberror code=${error.errorCode} '
+              'main=${error.isForMainFrame} url=${error.url} '
+              '${error.description}',
+        );
+        // `-999` is a load we replaced ourselves; `102` is WebKit reporting
+        // the `prevent` this delegate just returned for a lane cut or a
+        // protocol swap. Neither is a failure, and neither says anything
+        // about the connection.
+        if (error.errorCode == -999 || error.errorCode == 102) return;
         final mainFrame = error.isForMainFrame ?? true;
         final lower = error.description.toLowerCase();
         final redirectLoop = error.errorCode == -1007 ||
@@ -258,7 +344,15 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
           return;
         }
         if (!mainFrame) return;
-        _showOfflineAfterProbe();
+        final stalled = _awaitingConfirm;
+        _awaitingConfirm = null;
+        final fallback = _plainFallbackFor(stalled ?? _lastMainUrl);
+        if (fallback != null) {
+          flipTrace(() => '[FF.COOP] secure twin failed, plain $fallback');
+          unawaited(_openHref(fallback, fresh: true));
+          return;
+        }
+        unawaited(_showOfflineAfterProbe());
       },
       onNavigationRequest: (request) {
         final uri = Uri.tryParse(request.url);
@@ -278,12 +372,40 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
           if (uri.scheme == 'about' && _lastMainUrl != null) {
             return NavigationDecision.prevent;
           }
+          final upgrade = _swapDowngrade(uri);
+          if (upgrade != null) return upgrade;
           final split = _trackMainFrameHop(request.url, uri);
           if (split != null) return split;
         }
         return NavigationDecision.navigate;
       },
     );
+  }
+
+  /// A main-frame hop from `https` down to plain `http` wedges WebKit: the
+  /// navigation stays provisional forever and no error is ever delivered.
+  /// The secure twin of the target is tried first; the plain hop is kept as
+  /// a fallback for when that twin genuinely fails.
+  NavigationDecision? _swapDowngrade(Uri target) {
+    if (target.scheme != 'http') return null;
+    final from = _lastMainUrl;
+    if (from == null || !from.startsWith('https:')) return null;
+    final plain = target.toString();
+    if (!_downgradeTried.add(plain)) return null;
+    final secure = target.replace(scheme: 'https');
+    _downgradeFallback[secure.toString()] = plain;
+    flipTrace(() => '[FF.COOP] downgrade to http, trying $secure');
+    _laneTimer?.cancel();
+    _laneTimer = Timer(_laneHandover, () {
+      if (mounted) unawaited(_openHref(secure, fresh: true));
+    });
+    return NavigationDecision.prevent;
+  }
+
+  Uri? _plainFallbackFor(String? url) {
+    if (url == null) return null;
+    final plain = _downgradeFallback.remove(url);
+    return plain == null ? null : Uri.tryParse(plain);
   }
 
   /// WKWebView aborts a single navigation with `-1007` after ~20 server
@@ -306,7 +428,8 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
     if (_hopsThisLane < _laneHopCap) return null;
     _hopsThisLane = 0;
     _cuttingLane = true;
-    Timer(_laneHandover, () {
+    _laneTimer?.cancel();
+    _laneTimer = Timer(_laneHandover, () {
       if (mounted) unawaited(_openHref(target));
     });
     return NavigationDecision.prevent;
@@ -343,9 +466,12 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
       await _openHref(entry);
       return;
     }
-    await _goOffline();
+    await _showOfflineAfterProbe();
   }
 
+  /// The only route to the offline screen. A page can fail for a hundred
+  /// reasons that have nothing to do with the connection, so the verdict
+  /// always comes from a live probe rather than from the failure itself.
   Future<void> _showOfflineAfterProbe() async {
     if (_offlineShown) return;
     bool online = true;
@@ -354,8 +480,8 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
     } catch (_) {
       online = false;
     }
-    if (online) return;
-    _goOffline();
+    if (online || !mounted) return;
+    await _goOffline();
   }
 
   Future<void> _goOffline() async {
@@ -488,8 +614,11 @@ class _YardBrowserState extends State<YardBrowser> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _metricsDebounce?.cancel();
+    _laneTimer?.cancel();
     _networkSubscription?.cancel();
-    widget.pulse.onDestination = null;
+    if (widget.pulse.onDestination == _onLiveDestination) {
+      widget.pulse.onDestination = null;
+    }
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
